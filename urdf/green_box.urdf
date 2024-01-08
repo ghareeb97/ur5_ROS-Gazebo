@@ -1,33 +1,33 @@
 <?xml version="1.0"?>
-<robot name="red_box">
+<robot name="green_box">
 
 <link name="base_link">
   <collision>
-    <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+    <origin xyz="0 0 0.02" rpy="0 0 0"/>
     <geometry>
-      <cylinder radius="0.05" length="0.025" />
+      <box size="0.1 0.1 0.025" />
     </geometry>
   </collision>
 
   <visual>
-    <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+    <origin xyz="0 0 0.02" rpy="0 0 0"/>
     <geometry>
-      <cylinder radius="0.05" length="0.025" />
+      <box size="0.1 0.1 0.025" />
     </geometry>
   </visual>
 
   <inertial>
-    <origin xyz="0 0 0.0125" rpy="0 0 0" />
+    <origin xyz="0 0 0.02" rpy="0 0 0" />
     <mass value="0.05" />
     <inertia
       ixx="0.001" ixy="0.0"  ixz="0.0"
       iyy="0.001" iyz="0.0"
       izz="0.001" />
   </inertial>
-</link>
+  </link>
 
 <gazebo reference="base_link">
-  <material>Gazebo/Red</material>
+  <material>Gazebo/Green</material>
     <mu1>5</mu1>
     <mu2>5</mu2>
 </gazebo>

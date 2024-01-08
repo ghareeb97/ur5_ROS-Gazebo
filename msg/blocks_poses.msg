@@ -1,5 +1,5 @@
-# message type to describe 3-D position of the cylinder blocks
-# variable length array, length decided by topic /current_cylinder_blocks
+# message type to describe 3-D position of the blocks
+# variable length array, length decided by topic /current_blocks
 # to be published as a topic
 
 float64[] x  # x coordinate in the world

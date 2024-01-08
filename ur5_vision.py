@@ -1,80 +1,81 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-"""
-    moveit_cartesian_path.py - Version 0.1 2016-07-28
 
-    Based on the R. Patrick Goebel's moveit_cartesian_demo.py demo code.
-
-    Plan and execute a Cartesian path for the end-effector.
-
-    Created for the Pi Robot Project: http://www.pirobot.org
-    Copyright (c) 2014 Patrick Goebel.  All rights reserved.
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 2 of the License, or
-    (at your option) any later version.5
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details at:
-
-    http://www.gnu.org/licenses/gpl.html
-"""
-
-import rospy, sys, numpy as np
-import moveit_commander
-from copy import deepcopy
-import geometry_msgs.msg
-from ur5_notebook.msg import Tracker
-import moveit_msgs.msg
+import rospy, numpy as np
 import cv2, cv_bridge
 from sensor_msgs.msg import Image
+from ur5_dynamics.msg import Tracker
+from ur5_dynamics.msg import ColorDetected  # Import the custom message
 
-
-from std_msgs.msg import Header
-from trajectory_msgs.msg import JointTrajectory
-from trajectory_msgs.msg import JointTrajectoryPoint
 tracker = Tracker()
+
 class ur5_vision:
     def __init__(self):
         rospy.init_node("ur5_vision", anonymous=False)
+
+        # Initialize tracking flags and variables
         self.track_flag = False
         self.default_pose_flag = True
         self.cx = 400.0
         self.cy = 400.0
+
+        # Initialize the OpenCV bridge to convert ROS Image messages to OpenCV images
         self.bridge = cv_bridge.CvBridge()
+
+        # Subscribe to the camera image topic
         self.image_sub = rospy.Subscriber('/ur5/usbcam/image_raw', Image, self.image_callback)
+
+        # Publisher to publish tracked object's coordinates and color detection
         self.cxy_pub = rospy.Publisher('cxy', Tracker, queue_size=1)
+        self.color_pub = rospy.Publisher('color_detected', ColorDetected, queue_size=1)
 
-
-    def image_callback(self,msg):
-        # BEGIN BRIDGE
-        image = self.bridge.imgmsg_to_cv2(msg,desired_encoding='bgr8')
-        # END BRIDGE
-        # BEGIN HSV
+    def image_callback(self, msg):
+        # Convert ROS Image message to OpenCV image
+        image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-        # END HSV
-        # BEGIN FILTER
-        lower_red = np.array([ 0,  100, 100])
-        upper_red = np.array([10, 255, 255])
-        mask = cv2.inRange(hsv, lower_red, upper_red)
-        (_, cnts, _) = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        #area = cv2.contourArea(cnts)
-        h, w, d = image.shape
-        # print h, w, d  (800,800,3)
-        #BEGIN FINDER
-        M = cv2.moments(mask)
-        if M['m00'] > 0:
-            cx = int(M['m10']/M['m00'])
-            cy = int(M['m01']/M['m00'])
+        # Define color ranges for detecting blue, green, and red objects
+        lower_blue = np.array([100, 50, 50])
+        upper_blue = np.array([130, 255, 255])
+        lower_green = np.array([40, 50, 50])
+        upper_green = np.array([80, 255, 255])
+        lower_red1 = np.array([0, 50, 50])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([170, 50, 50])
+        upper_red2 = np.array([180, 255, 255])
 
-        # cx range (55,750) cy range( 55, ~ )
-        # END FINDER
-        # Isolate largest contour
-        #  contour_sizes = [(cv2.contourArea(contour), contour) for contour in cnts]
-        #  biggest_contour = max(contour_sizes, key=lambda x: x[0])[1]
+        # Create masks for each color
+        blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
+        green_mask = cv2.inRange(hsv, lower_green, upper_green)
+        red_mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+        red_mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+
+        # Combine masks to detect blue, green, and red objects
+        combined_mask = cv2.bitwise_or(blue_mask, green_mask)
+        combined_mask = cv2.bitwise_or(combined_mask, red_mask1)
+        combined_mask = cv2.bitwise_or(combined_mask, red_mask2)
+
+        # Initialize color_detected variable to None
+        color_detected = None
+
+        # Determine the detected object's color based on the masks
+        if np.any(blue_mask):
+            color_detected = "Blue"
+        elif np.any(green_mask):
+            color_detected = "Green"
+        elif np.any(red_mask1) or np.any(red_mask2):
+            color_detected = "Red"
+
+        # Find contours of the detected object
+        (cnts, _) = cv2.findContours(combined_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        h, w, d = image.shape
+
+        M = cv2.moments(combined_mask)
+        if M['m00'] > 0:
+            cx = int(M['m10'] / M['m00'])
+            cy = int(M['m01'] / M['m00'])
+
+            # Check if the area of the contour is greater than a threshold to confirm object detection
             for i, c in enumerate(cnts):
                 area = cv2.contourArea(c)
                 if area > 7500:
@@ -82,29 +83,31 @@ class ur5_vision:
                     self.cx = cx
                     self.cy = cy
                     self.error_x = self.cx - w/2
-                    self.error_y = self.cy - (h/2+195)
+                    self.error_y = self.cy - (h/2 + 195)
                     tracker.x = cx
                     tracker.y = cy
                     tracker.flag1 = self.track_flag
                     tracker.error_x = self.error_x
                     tracker.error_y = self.error_y
-                    #(_,_,w_b,h_b)=cv2.boundingRect(c)
-                    #print w_b,h_b
-                    # BEGIN circle
-                    cv2.circle(image, (cx, cy), 10, (0,0,0), -1)
-                    cv2.putText(image, "({}, {})".format(int(cx), int(cy)), (int(cx-5), int(cy+15)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                    cv2.drawContours(image, cnts, -1, (255, 255, 255),1)
-                    #BGIN CONTROL
+                    cv2.circle(image, (cx, cy), 10, (0, 0, 0), -1)
+                    cv2.putText(image, "({}, {})".format(int(cx), int(cy)), (int(cx - 5), int(cy + 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                    cv2.drawContours(image, cnts, -1, (255, 255, 255), 1)
                     break
                 else:
                     self.track_flag = False
                     tracker.flag1 = self.track_flag
 
-
+        # Publish tracked object's coordinates and color detection
         self.cxy_pub.publish(tracker)
-        cv2.namedWindow("window", 1)
-        cv2.imshow("window", image )
+        self.color_pub.publish(ColorDetected(color_detected))
+
+        # Display the camera image with object detection overlay
+        cv2.namedWindow("End Effector Camera", 1)
+        cv2.imshow("End Effector Camera", image)
         cv2.waitKey(1)
 
-follower=ur5_vision()
+# Create an instance of the ur5_vision class
+follower = ur5_vision()
+
+# Run the ROS main loop
 rospy.spin()
